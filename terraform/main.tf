@@ -39,7 +39,7 @@ resource "aws_instance" "node_instance" {
   }
    
   tags = {
-    "Name" = "node_instance"
+    "Name" = "task_node"
   }
 }
 
@@ -90,4 +90,9 @@ resource "aws_key_pair" "deployer" {
 resource "aws_iam_instance_profile" "ec2-profiles" {
     name = "ec2-profiles"
     role = "EC2_ECR_Role_access"
+}
+
+output "instance_public_ip" {
+  value     = aws_instance.node_instance.public_ip
+  sensitive = true
 }
