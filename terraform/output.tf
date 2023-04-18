@@ -1,4 +1,4 @@
-output "node_instance_public_ip" {
+output "instance_public_ip" {
   description = "The web instance Ip"
   value       = aws_instance.node_instance.public_ip
   sensitive = true
