@@ -1,4 +1,6 @@
-# configurations
+# Terrfaor script used to provision ec2 on AWS and store the terraform.tfstate file remotely on S3
+
+# This allows interaction with AWS api
 terraform {
     required_providers {
       aws = {
@@ -6,28 +8,27 @@ terraform {
         version = "~>4.0"
       }
     }
-    # used to persist vault data i.e the tfstate
-    backend "s3" {
-      bucket = "terraformtfstate-buckets"
-      key = "aws/ec2-deploy/terraform.tfstate"
-      region = "us-east-1"
 
-      # Replace this with your DynamoDB table name!
-    # dynamodb_table = "oaterraform-bucket-test-locks"
-    # encrypt        = true
+    # used to persist vault data i.e the tfstate in AWS S3
+
+    backend "s3" {
+      bucket = "terraformtfstate-buckets"         // bucket name to be stored
+      key = "aws/ec2-deploy/terraform.tfstate"    //path the tfstate to be stored
+      region = "us-east-1"                        //location of the bucket
     }
 }
 
+# default region to provision the infrastructure
 provider "aws" {
   region = "us-east-1"
 }
 
 
-# ec2 launch script
+# EC2 launch script
 resource "aws_instance" "node_instance" {
   ami              = data.aws_ssm_parameter.instance_ami.value
   instance_type    = "t2.micro"
-  key_name         = aws_key_pair.deployer.key_name
+  key_name         = aws_key_pair.deployer.key_name       //key pair referenced to enable ssh into the server
   vpc_security_group_ids = [aws_security_group.node_security_grp.id]
   iam_instance_profile = aws_iam_instance_profile.ec2-profiles.name
   connection  {
@@ -39,11 +40,11 @@ resource "aws_instance" "node_instance" {
   }
    
   tags = {
-    "Name" = "task_node"
+    "Name" = "task_node"      //tag name of the instance
   }
 }
 
-# ec2 SG
+# Security group attached to the instance
 resource "aws_security_group" "node_security_grp" {
   description        = "allow inbound traffic to instance"
 egress = [
@@ -101,6 +102,7 @@ egress = [
   }
 }
 
+# Create the key pair to ssh into the EC2
 resource "aws_key_pair" "deployer" {
   key_name   = var.key_name
   public_key = var.public_key
@@ -112,6 +114,7 @@ resource "aws_iam_instance_profile" "ec2-profiles" {
     role = "EC2_ECR_Role_access"
 }
 
+//Prints out the IP after launch
 output "instance_public_ip" {
   value     = aws_instance.node_instance.public_ip
   sensitive = true

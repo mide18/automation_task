@@ -1,111 +1,112 @@
-name: CI/CD with Terraform
-on: 
-  push:
-    branches:
-      - main
-env: 
+# # CI/CD pipeline that automate the infrastructure provisioning and deployment of the container.
+
+# name: CI/CD with Terraform
+# on: 
+#   push:
+#     branches:
+#       - main
+# env: 
   
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  # AWS_BUCKET_ROLE: ${{ secrets.AWS_BUCKET_ROLE }}
-  PRIVATE_SSH_KEY: ${{ secrets.AWS_PRIVATE_SSH_KEY }}
-  PUBLIC_SSH_KEY: ${{ secrets.AWS_PUBLIC_SSH_KEY }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  TFSTATE_BUCKET_NAME: ${{ secrets.AWS_TERRAFORM_TFSTATE_BUCKET_NAME }}
-  AWS_REGION: us-east-1
+#   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#   PRIVATE_SSH_KEY: ${{ secrets.AWS_PRIVATE_SSH_KEY }}
+#   PUBLIC_SSH_KEY: ${{ secrets.AWS_PUBLIC_SSH_KEY }}
+#   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#   TFSTATE_BUCKET_NAME: ${{ secrets.AWS_TERRAFORM_TFSTATE_BUCKET_NAME }}
+#   AWS_REGION: us-east-1
 
-jobs:
-  deploy-infra:
-    runs-on: ubuntu-20.04
+# jobs:
+#   deploy-infra:
+#     runs-on: ubuntu-20.04
 
-    outputs:
-      SERVER_PUBLIC_IP: ${{ steps.set-ip.outputs.instance_public_ip}}
+#     outputs:
+#       SERVER_PUBLIC_IP: ${{ steps.set-ip.outputs.instance_public_ip}}
 
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v2
+#     steps:
+#       - name: git checkout
+#         uses: actions/checkout@v2
 
-      - name: setup terraform
-        uses: hashicorp/setup-terraform@v1
-        # to take the Terraform output and be able to use it in the next job workflow
-        with:
-          terraform_wrapper: false  
+#       - name: setup terraform
+#         uses: hashicorp/setup-terraform@v1
+#         # to take the Terraform output and be able to use it in the next job workflow
+#         with:
+#           terraform_wrapper: false  
 
-      - name: Terraform fmt
-        id: fmt
-        run: terraform fmt -check
-        continue-on-error: true
+#       - name: Terraform fmt
+#         id: fmt
+#         run: terraform fmt -check
+#         continue-on-error: true
 
-      - name: Terraform init
-        id: init
-        run: terraform init -backend-config="bucket=$TFSTATE_BUCKET_NAME" -backend-config="region=us-east-1"
-        working-directory: ./terraform
+#       - name: Terraform init
+#         id: init
+#         run: terraform init -backend-config="bucket=$TFSTATE_BUCKET_NAME" -backend-config="region=us-east-1"
+#         working-directory: ./terraform
 
-      - name: Terraform Plan
-        id: plan
-        run: |-
-          terraform plan \
-          -var="region=us-east-1" \
-          -var="public_key=$PUBLIC_SSH_KEY" \
-          -var="private_key=$PRIVATE_SSH_KEY" \
-          -var="key_name=deployer-key" \
-          -out=PLAN
-        working-directory: ./terraform
+#       - name: Terraform Plan
+#         id: plan
+#         run: |-
+#           terraform plan \
+#           -var="region=us-east-1" \
+#           -var="public_key=$PUBLIC_SSH_KEY" \
+#           -var="private_key=$PRIVATE_SSH_KEY" \
+#           -var="key_name=deployer-key" \
+#           -out=PLAN
+#         working-directory: ./terraform
 
-      - name: Terraform Apply
-        id: apply
-        run: |-
-          terraform apply PLAN
-        working-directory: ./terraform
+#       - name: Terraform Apply
+#         id: apply
+#         run: |-
+#           terraform apply PLAN
+#         working-directory: ./terraform
 
-      - name: Set output
-        id: set-ip
-        run: |-
-          echo "::set-output name=instance_public_ip::$(terraform output instance_public_ip)"
-        working-directory: ./terraform
+#       - name: Set output
+#         id: set-ip
+#         run: |-
+#           echo "::set-output name=instance_public_ip::$(terraform output instance_public_ip)"
+#         working-directory: ./terraform
 
-  deploy-app:
-    runs-on: ubuntu-20.04
-    needs: deploy-infra
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+#   deploy-app:
+#     runs-on: ubuntu-20.04
+#     needs: deploy-infra
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v3
 
-      - name: Set IP env variable
-        run: echo SERVER_PUBLIC_IP=${{ needs.deploy-infra.outputs.SERVER_PUBLIC_IP }} >> $GITHUB_ENV
+#       - name: Set IP env variable
+#         run: echo SERVER_PUBLIC_IP=${{ needs.deploy-infra.outputs.SERVER_PUBLIC_IP }} >> $GITHUB_ENV
 
-      - name: Login to AWS ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+#       - name: Login to AWS ECR
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build, push docker image
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          REPOSITORY: my-node-app
-          IMAGE_TAG: ${{ github.sha }}
-        run: |-
-          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
-          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
-        working-directory: ./nodeapp
+#       - name: Build, push docker image
+#         env:
+#           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           REPOSITORY: my-node-app
+#           IMAGE_TAG: ${{ github.sha }}
+#         run: |-
+#           docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
+#           docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+#         working-directory: ./nodeapp
 
-      - name: Deploy docker image to EC2
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          REPOSITORY: my-node-app
-          IMAGE_TAG: ${{ github.sha }}
-          AWS_DEFAULT_REGION: us-east-1
+#       - name: Deploy docker image to EC2
+#         env:
+#           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           REPOSITORY: my-node-app
+#           IMAGE_TAG: ${{ github.sha }}
+#           AWS_DEFAULT_REGION: us-east-1
           
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ env.SERVER_PUBLIC_IP }}
-          username: ubuntu
-          key: ${{ env.PRIVATE_SSH_KEY }}
-          envs: PRIVATE_SSH_KEY,REGISTRY,REPOSITORY,IMAGE_TAG,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_DEFAULT_REGION,AWS_REGION
-          script: |-
-            sudo apt update
-            sudo apt install docker.io -y
-            sudo apt install awscli -y
-            sudo $(aws ecr get-login --no-include-email --region us-east-1);
-            sudo docker stop myappcontainer || true
-            sudo docker rm myappcontainer || true
-            sudo docker pull $REGISTRY/$REPOSITORY:$IMAGE_TAG
-            sudo docker run -d --name myappcontainer -p 8080:8080 $REGISTRY/$REPOSITORY:$IMAGE_TAG
+#         uses: appleboy/ssh-action@master
+#         with:
+#           host: ${{ env.SERVER_PUBLIC_IP }}
+#           username: ubuntu
+#           key: ${{ env.PRIVATE_SSH_KEY }}
+#           envs: PRIVATE_SSH_KEY,REGISTRY,REPOSITORY,IMAGE_TAG,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_DEFAULT_REGION,AWS_REGION
+#           script: |-
+#             sudo apt update
+#             sudo apt install docker.io -y
+#             sudo apt install awscli -y
+#             sudo $(aws ecr get-login --no-include-email --region us-east-1);
+#             sudo docker stop myappcontainer || true
+#             sudo docker rm myappcontainer || true
+#             sudo docker pull $REGISTRY/$REPOSITORY:$IMAGE_TAG
+#             sudo docker run -d --name myappcontainer -p 8080:8080 $REGISTRY/$REPOSITORY:$IMAGE_TAG
