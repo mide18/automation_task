@@ -1,5 +1,7 @@
 ## Containerised application deployed on AWS on infrastructure using GitHub Action
 
+<img width="1420" alt="Screenshot 2023-04-22 at 09 36 48" src="https://user-images.githubusercontent.com/43912867/233779073-d7f86ac1-1f52-4428-8926-949b15d2afd9.png">
+
 
 ## Tools used
     * Node.js: This is used to develop the Hello World! App.​
