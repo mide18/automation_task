@@ -30,3 +30,6 @@
 
 ### CONCLUSION
 In conclusion, I decided automate this whole process from the provisioning to deployment of the docker container beacuse it's the standrad and best practice which saves alot of time to deliver applications and services at high velocity . This enables DevOps Engineers to focus on solving other problems while Developers can continuosly working on the app improvement as well as easy bug and security fixes.
+```
+url: 3.82.217.234:8080
+```
