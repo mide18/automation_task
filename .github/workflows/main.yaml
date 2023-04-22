@@ -1,112 +1,121 @@
-# # CI/CD pipeline that automate the infrastructure provisioning and deployment of the container.
+# CI/CD pipeline that automate the infrastructure provisioning and deployment of the container.
 
-# name: CI/CD with Terraform
-# on: 
-#   push:
-#     branches:
-#       - main
-# env: 
-  
-#   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#   PRIVATE_SSH_KEY: ${{ secrets.AWS_PRIVATE_SSH_KEY }}
-#   PUBLIC_SSH_KEY: ${{ secrets.AWS_PUBLIC_SSH_KEY }}
-#   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#   TFSTATE_BUCKET_NAME: ${{ secrets.AWS_TERRAFORM_TFSTATE_BUCKET_NAME }}
-#   AWS_REGION: us-east-1
+name: Infrastructure & Container Deployment Automation
+# trigger the workflow
+on:                   
+  push:
+    branches:
+      - main
 
-# jobs:
-#   deploy-infra:
-#     runs-on: ubuntu-20.04
+# Setup the environment variables referencing the github secrets
+env:  
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  PRIVATE_SSH_KEY: ${{ secrets.AWS_PRIVATE_SSH_KEY }}
+  PUBLIC_SSH_KEY: ${{ secrets.AWS_PUBLIC_SSH_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  TFSTATE_BUCKET_NAME: ${{ secrets.AWS_TERRAFORM_TFSTATE_BUCKET_NAME }}
+  AWS_REGION: us-east-1
 
-#     outputs:
-#       SERVER_PUBLIC_IP: ${{ steps.set-ip.outputs.instance_public_ip}}
+jobs:
+  deploy-infra:
+    runs-on: ubuntu-20.04
 
-#     steps:
-#       - name: git checkout
-#         uses: actions/checkout@v2
+    outputs:
+      SERVER_PUBLIC_IP: ${{ steps.set-ip.outputs.instance_public_ip}}
 
-#       - name: setup terraform
-#         uses: hashicorp/setup-terraform@v1
-#         # to take the Terraform output and be able to use it in the next job workflow
-#         with:
-#           terraform_wrapper: false  
+    steps:
+    # downloads the copy of repository on the runner (Runners are the machines that execute jobs in a GitHub Actions workflow)
+      - name: git checkout
+        uses: actions/checkout@v2
 
-#       - name: Terraform fmt
-#         id: fmt
-#         run: terraform fmt -check
-#         continue-on-error: true
+      - name: setup terraform
+        uses: hashicorp/setup-terraform@v1
+        # to take the Terraform output and be able to use it in the next job workflow
+        with:
+          terraform_wrapper: false  
 
-#       - name: Terraform init
-#         id: init
-#         run: terraform init -backend-config="bucket=$TFSTATE_BUCKET_NAME" -backend-config="region=us-east-1"
-#         working-directory: ./terraform
+    # This initializes terraform initializes working directory containing configuration files and dependencies
+      - name: Terraform init
+        id: init
+        run: terraform init -backend-config="bucket=$TFSTATE_BUCKET_NAME" -backend-config="region=us-east-1"
+        working-directory: ./terraform
+    
+    # To preview the actions terraform would take to launch/modify the infrastructure 
+    # Pass tf variables with Terraform plan
+      - name: Terraform Plan
+        id: plan
+        run: |-
+          terraform plan \
+          -var="region=us-east-1" \
+          -var="public_key=$PUBLIC_SSH_KEY" \
+          -var="private_key=$PRIVATE_SSH_KEY" \
+          -var="key_name=deployer-key" \
+          -out=PLAN
+        working-directory: ./terraform
 
-#       - name: Terraform Plan
-#         id: plan
-#         run: |-
-#           terraform plan \
-#           -var="region=us-east-1" \
-#           -var="public_key=$PUBLIC_SSH_KEY" \
-#           -var="private_key=$PRIVATE_SSH_KEY" \
-#           -var="key_name=deployer-key" \
-#           -out=PLAN
-#         working-directory: ./terraform
+    # Executes the actions proposed in a terraform plan
+      - name: Terraform Apply
+        id: apply
+        run: |-
+          terraform apply PLAN
+        working-directory: ./terraform
 
-#       - name: Terraform Apply
-#         id: apply
-#         run: |-
-#           terraform apply PLAN
-#         working-directory: ./terraform
+    # Set output of server IP
+      - name: Set output
+        id: set-ip
+        run: |-
+          echo "::set-output name=instance_public_ip::$(terraform output instance_public_ip)"
+        working-directory: ./terraform
 
-#       - name: Set output
-#         id: set-ip
-#         run: |-
-#           echo "::set-output name=instance_public_ip::$(terraform output instance_public_ip)"
-#         working-directory: ./terraform
+  deploy-app:
+    runs-on: ubuntu-20.04
+    needs: deploy-infra
+    steps:
+    # download copy of repository to the runner using github action
+      - name: Checkout
+        uses: actions/checkout@v3
+    
+    #echo the variable IP to the github env
+      - name: Set IP env variable
+        run: echo SERVER_PUBLIC_IP=${{ needs.deploy-infra.outputs.SERVER_PUBLIC_IP }} >> $GITHUB_ENV
 
-#   deploy-app:
-#     runs-on: ubuntu-20.04
-#     needs: deploy-infra
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v3
+    # Login to ECR using aws-actions
+      - name: Login to AWS ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-#       - name: Set IP env variable
-#         run: echo SERVER_PUBLIC_IP=${{ needs.deploy-infra.outputs.SERVER_PUBLIC_IP }} >> $GITHUB_ENV
+      - name: Build and push docker image to ECR
+      # set the env. variables
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: my-node-app
+          IMAGE_TAG: ${{ github.sha }}
+        run: |-
+          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+        working-directory: ./nodeapp
 
-#       - name: Login to AWS ECR
-#         id: login-ecr
-#         uses: aws-actions/amazon-ecr-login@v1
-
-#       - name: Build, push docker image
-#         env:
-#           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-#           REPOSITORY: my-node-app
-#           IMAGE_TAG: ${{ github.sha }}
-#         run: |-
-#           docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
-#           docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
-#         working-directory: ./nodeapp
-
-#       - name: Deploy docker image to EC2
-#         env:
-#           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-#           REPOSITORY: my-node-app
-#           IMAGE_TAG: ${{ github.sha }}
-#           AWS_DEFAULT_REGION: us-east-1
-          
-#         uses: appleboy/ssh-action@master
-#         with:
-#           host: ${{ env.SERVER_PUBLIC_IP }}
-#           username: ubuntu
-#           key: ${{ env.PRIVATE_SSH_KEY }}
-#           envs: PRIVATE_SSH_KEY,REGISTRY,REPOSITORY,IMAGE_TAG,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_DEFAULT_REGION,AWS_REGION
-#           script: |-
-#             sudo apt update
-#             sudo apt install docker.io -y
-#             sudo apt install awscli -y
-#             sudo $(aws ecr get-login --no-include-email --region us-east-1);
-#             sudo docker stop myappcontainer || true
-#             sudo docker rm myappcontainer || true
-#             sudo docker pull $REGISTRY/$REPOSITORY:$IMAGE_TAG
-#             sudo docker run -d --name myappcontainer -p 8080:8080 $REGISTRY/$REPOSITORY:$IMAGE_TAG
+      - name: Deploy docker image to EC2
+      # set the env. variables
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: my-node-app
+          IMAGE_TAG: ${{ github.sha }}
+          AWS_DEFAULT_REGION: us-east-1   
+      # executes remote ssh using ssh keys
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.SERVER_PUBLIC_IP }}
+          username: ubuntu
+          key: ${{ env.PRIVATE_SSH_KEY }}
+          envs: PRIVATE_SSH_KEY,REGISTRY,REPOSITORY,IMAGE_TAG,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_DEFAULT_REGION,AWS_REGION
+          # this scripts is excuted within the EC2 to deploy the application mapping the container port 8080 to the port pf choice 
+          script: |-
+            sudo apt update
+            sudo apt install docker.io -y
+            sudo apt install awscli -y
+            sudo $(aws ecr get-login --no-include-email --region us-east-1);
+            sudo docker stop myappcontainer || true
+            sudo docker rm myappcontainer || true
+            sudo docker pull $REGISTRY/$REPOSITORY:$IMAGE_TAG
+            sudo docker run -d --name myappcontainer -p 80:8080 $REGISTRY/$REPOSITORY:$IMAGE_TAG

@@ -1,6 +1,6 @@
-# Terrfaor script used to provision ec2 on AWS and store the terraform.tfstate file remotely on S3
+# Terraform script used to provision ec2 on AWS and store the terraform.tfstate file remotely on S3
 
-# This allows interaction with AWS api
+# Terraform block: This allows interaction with AWS api
 terraform {
     required_providers {
       aws = {
@@ -9,7 +9,7 @@ terraform {
       }
     }
 
-    # used to persist vault data i.e the tfstate in AWS S3
+    # used to persist tfstate remotely in s# and possible collaboration i.e the tfstate in AWS S3
 
     backend "s3" {
       bucket = "terraformtfstate-buckets"         // bucket name to be stored
@@ -108,7 +108,7 @@ resource "aws_key_pair" "deployer" {
   public_key = var.public_key
 }
 
-# Ec2 IAM role
+# Ec2 IAM role to have access to ECR
 resource "aws_iam_instance_profile" "ec2-profiles" {
     name = "ec2-profiles"
     role = "EC2_ECR_Role_access"
