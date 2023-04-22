@@ -4,7 +4,7 @@ FROM node:14
 WORKDIR /usr/app
 # copy the file to present working directory
 COPY package.json .
-# install dependencies
+# install dependencies from package.json
 RUN npm install
 # copy all files from app to docker image
 COPY . .

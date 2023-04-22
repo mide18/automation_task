@@ -1,12 +1,15 @@
-name: CI/CD with Terraform
-on: 
+# CI/CD pipeline that automate the infrastructure provisioning and deployment of the container.
+
+name: Infrastructure & Container Deployment Automation
+# trigger the workflow
+on:                   
   push:
     branches:
       - main
-env: 
-  
+
+# Setup the environment variables referencing the github secrets
+env:  
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  # AWS_BUCKET_ROLE: ${{ secrets.AWS_BUCKET_ROLE }}
   PRIVATE_SSH_KEY: ${{ secrets.AWS_PRIVATE_SSH_KEY }}
   PUBLIC_SSH_KEY: ${{ secrets.AWS_PUBLIC_SSH_KEY }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -21,6 +24,7 @@ jobs:
       SERVER_PUBLIC_IP: ${{ steps.set-ip.outputs.instance_public_ip}}
 
     steps:
+    # downloads the copy of repository on the runner (Runners are the machines that execute jobs in a GitHub Actions workflow)
       - name: git checkout
         uses: actions/checkout@v2
 
@@ -30,16 +34,14 @@ jobs:
         with:
           terraform_wrapper: false  
 
-      - name: Terraform fmt
-        id: fmt
-        run: terraform fmt -check
-        continue-on-error: true
-
+    # This initializes terraform initializes working directory containing configuration files and dependencies
       - name: Terraform init
         id: init
         run: terraform init -backend-config="bucket=$TFSTATE_BUCKET_NAME" -backend-config="region=us-east-1"
         working-directory: ./terraform
-
+    
+    # To preview the actions terraform would take to launch/modify the infrastructure 
+    # Pass tf variables with Terraform plan
       - name: Terraform Plan
         id: plan
         run: |-
@@ -51,12 +53,14 @@ jobs:
           -out=PLAN
         working-directory: ./terraform
 
+    # Executes the actions proposed in a terraform plan
       - name: Terraform Apply
         id: apply
         run: |-
           terraform apply PLAN
         working-directory: ./terraform
 
+    # Set output of server IP
       - name: Set output
         id: set-ip
         run: |-
@@ -67,17 +71,21 @@ jobs:
     runs-on: ubuntu-20.04
     needs: deploy-infra
     steps:
+    # download copy of repository to the runner using github action
       - name: Checkout
         uses: actions/checkout@v3
-
+    
+    #echo the variable IP to the github env
       - name: Set IP env variable
         run: echo SERVER_PUBLIC_IP=${{ needs.deploy-infra.outputs.SERVER_PUBLIC_IP }} >> $GITHUB_ENV
 
+    # Login to ECR using aws-actions
       - name: Login to AWS ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build, push docker image
+      - name: Build and push docker image to ECR
+      # set the env. variables
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           REPOSITORY: my-node-app
@@ -88,18 +96,20 @@ jobs:
         working-directory: ./nodeapp
 
       - name: Deploy docker image to EC2
+      # set the env. variables
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           REPOSITORY: my-node-app
           IMAGE_TAG: ${{ github.sha }}
-          AWS_DEFAULT_REGION: us-east-1
-          
+          AWS_DEFAULT_REGION: us-east-1   
+      # executes remote ssh using ssh keys
         uses: appleboy/ssh-action@master
         with:
           host: ${{ env.SERVER_PUBLIC_IP }}
           username: ubuntu
           key: ${{ env.PRIVATE_SSH_KEY }}
           envs: PRIVATE_SSH_KEY,REGISTRY,REPOSITORY,IMAGE_TAG,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_DEFAULT_REGION,AWS_REGION
+          # this scripts is excuted within the EC2 to deploy the application mapping the container port 8080 to the port pf choice 
           script: |-
             sudo apt update
             sudo apt install docker.io -y
@@ -108,4 +118,4 @@ jobs:
             sudo docker stop myappcontainer || true
             sudo docker rm myappcontainer || true
             sudo docker pull $REGISTRY/$REPOSITORY:$IMAGE_TAG
-            sudo docker run -d --name myappcontainer -p 8080:8080 $REGISTRY/$REPOSITORY:$IMAGE_TAG
+            sudo docker run -d --name myappcontainer -p 80:8080 $REGISTRY/$REPOSITORY:$IMAGE_TAG
