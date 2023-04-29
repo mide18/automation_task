@@ -119,3 +119,9 @@ jobs:
             sudo docker rm myappcontainer || true
             sudo docker pull $REGISTRY/$REPOSITORY:$IMAGE_TAG
             sudo docker run -d --name myappcontainer -p 80:8080 $REGISTRY/$REPOSITORY:$IMAGE_TAG
+      
+      #   # This destroys the instances
+      # - name: Terraform init
+      #   id: destroy
+      #   run: terraform destroy
+      #   working-directory: ./terraform
