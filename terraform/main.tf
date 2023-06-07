@@ -45,6 +45,8 @@ resource "aws_instance" "node_instance" {
 }
 
 # Security group attached to the instance
+
+# Inline blocks is not advisable in for a resuseable terraform script.
 resource "aws_security_group" "node_security_grp" {
   description        = "allow inbound traffic to instance"
 egress = [
